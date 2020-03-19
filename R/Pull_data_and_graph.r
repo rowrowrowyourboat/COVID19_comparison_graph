@@ -1,23 +1,98 @@
+
 library(RCurl)
 library(reshape2)
 library(ggplot2)
 require(gghighlight)
+library(tidyverse)
+library(magrittr)
+library(deSolve)
+options(scipen = 999)
 
-x <- getURL("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
-y <- read.csv(text = x)
 
+
+
+
+get_URL_as_csv<- function(u){
+  getURL(
+    u,
+    .opts = list(ssl.verifypeer = FALSE)
+  ) %>% read.csv(text = ., stringsAsFactors = FALSE)
+  
+  
+}
+
+#source: CSSE at Johns Hopkins University
+y<- get_URL_as_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
 names(y)[-(1:4)] <- substring(names(y)[-(1:4)], 2)
-
-dat <- melt(y, id.vars = names(y)[1:4], variable.name = "date")
+dat <- melt(y, id.vars = names(y)[1:4], variable.name = "report_date", value.name = "test_pos")
 dat$Lat <- NULL
 dat$Long <- NULL
-# dat$Province.State <- NULL
+dat$report_date <- as.Date(dat$report_date, format = "%m.%d.%y")
 
-dat$date <- as.Date(dat$date, format = "%m.%d.%y")
+#source US census 
+pop_states<- get_URL_as_csv( "https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/national/totals/nst-est2019-alldata.csv")
+pop_states %<>% select(NAME, POPESTIMATE2019)
+colnames(pop_states)<- c("NAME", "population")
 
-table((dat$Country.Region))
+#world pop
+#pop_country<- get_URL_as_csv("https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv")
+pop_country<- get_URL_as_csv("https://data.un.org/_Docs/SYB/CSV/SYB62_1_201907_Population,%20Surface%20Area%20and%20Density.csv")
 
-countries <- c(
+
+#colnames(pop_country)<-pop_country[1,]
+
+pop_country$location<-pop_country[,2]
+pop_country %<>% filter(X== '2019')
+pop_country %<>% filter(X.1=="Population mid-year estimates (millions)")
+pop_country$population <- as.numeric(pop_country$X.2)*1000000
+pop_country%<>% select(location, population)
+pop_country<-pop_country[2:nrow(pop_country),]
+
+
+pop_country[pop_country$location == "China, Taiwan Province of China", "location"]<- "Taiwan*"
+pop_country[pop_country$location == "United States of America", "location"]<- "US"
+pop_country[pop_country$location == "Viet Nam", "location"]<- "Vietnam"
+pop_country[pop_country$location == "Russian Federation", "location"]<- "Russia"
+pop_country[pop_country$location == "	Iran (Islamic Republic of)", "location"]<- "Iran"
+pop_country[pop_country$location == "Bolivia (Plurinational State of)", "location"]<- "Bolivia"
+pop_country[pop_country$location == "Republic of Korea", "location"]<- "Korea, South"
+
+
+
+
+
+
+#create state level data
+dat$org<- ifelse(dat$Province.State=="", "DELETE", paste(dat$Country.Region, dat$Province.State, sep="-"))
+dat<- left_join(dat, pop_states, by=c("Province.State"= "NAME"))
+
+
+#create country level data
+dat_country<- dat %>%
+                group_by(Country.Region, report_date) %>%
+                summarize(
+                  test_pos = sum(test_pos)
+                )
+dat_country<- left_join(dat_country, pop_country, by = c("Country.Region" = "location"))
+
+dat_country$org<-dat_country$Country.Region
+dat_country$Country.Region<-NULL
+
+dat$Country.Region<-NULL
+dat$Province.State<-NULL
+
+
+dat<-bind_rows(dat, dat_country)
+dat_country<-NULL
+
+dat<- dat[dat$org!="DELETE",]
+
+
+
+
+
+############ switch to graphic specific dataframe #############
+filter_list<- c(
   "Italy"
   , "Switzerland"
   , "Germany"
@@ -25,116 +100,178 @@ countries <- c(
   , "United Kingdom"
   , "US"
   , "Austria"
-  # , "Japan"
-  # , "Mainland China"
+  , "Japan"
+  ,"Spain"
+  ,"US-California"
+  ,"US-Tennessee"
+  ,"United States", "China"
 )
 
-dat_sel <- subset(dat, Country.Region %in% countries)
+filter_days_to_go_back<- -30
 
-dat_sel$Province.State <- factor(dat_sel$Province.State)
-dat_sel$Country.Region <- factor(dat_sel$Country.Region)
+min_cases <- 10
 
-countries_repeats <- names(which(table(dat_sel$Country.Region, dat_sel$date)[, 1] > 1))
+target_org <- "Italy"
 
-dat_sel$Province.State <- NULL
+pop_percentage<- .50
 
-for(i in countries_repeats) {
+#remove data under min case count threshold
+graph_dat<-filter(dat,test_pos>=min_cases, org %in% filter_list,  )
+
+
+maxdate<-max(graph_dat$report_date)
+graph_dat$daystoday <- as.numeric(graph_dat$report_date - maxdate)
+
+#status for caption at bottom
+
+#find max number of cases
+max_cases <- max(graph_dat[graph_dat$org == target_org, "test_pos"])
+
+
+max_mod <- lm(
+  log10(test_pos)~daystoday,
+  data = graph_dat[graph_dat$org==target_org,]
+)
+
+
+graph_dat %<>% group_by(org) %>%
+      mutate (
+        
+        date_diff= 
+          round(
+            as.numeric(
+          -(coef(max_mod)[1] - (  mean(log10(test_pos)- coef(max_mod)[2] * daystoday )   )  )/coef(max_mod)[2]
+          ),
+          0)
+      )
   
-  dat_sel <- subset(dat_sel, !Country.Region %in% i)
-  
-  dat_sel <- rbind(
-    dat_sel
-    , data.frame(
-      Country.Region = i
-      , date = unique(dat$date)
-      , value = tapply(dat$value[dat$Country.Region %in% i], dat$date[dat$Country.Region %in% i], sum, na.rm = TRUE)
-    )
-  )
-  
-}
+graph_dat$date_lag <- graph_dat$report_date + graph_dat$date_diff
+graph_dat$diff_today_lag <- as.numeric(graph_dat$date_lag - maxdate)
 
-dat_sel$Country.Region <- factor(dat_sel$Country.Region)
-dat_sel$value[dat_sel$value == 0] <- NA
-# dat_sel$difftotoday <- dat_sel$date - max(dat_sel$date)
-dat_sel$daystoday <- as.numeric(dat_sel$date - max(dat_sel$date))
 
-max_case_tab <- tapply(dat_sel$value, dat_sel$Country.Region, max, na.rm = TRUE)
-max_ind <- which.max(max_case_tab)
-count_max <- names(max_ind)
-max_cases <- max_case_tab[max_ind]
+graph_dat<- graph_dat[ graph_dat$diff_today_lag>filter_days_to_go_back,]
 
-max_mod <- lm(log10(value)~daystoday, data = subset(dat_sel, Country.Region %in% count_max & date > as.Date("22.02.20", format = "%d.%m.%y")))
+graph_dat$org <- factor(graph_dat$org, levels = c(target_org, filter_list[not(filter_list %in% target_org)]))
+graph_dat<- graph_dat[order(graph_dat$org, graph_dat$report_date),]
 
-summary(max_mod)
-
-100*(exp(coef(max_mod)[2]) - 1) # % Change per day
-
-# visreg::visreg(max_mod)
-
-dat_sel$date_diff <- NA
-
-for(i in countries[!countries %in% count_max]) {
-  
-  # i <- "France"
-  
-  # tmp_mod <- lm(log10(value)~daystoday, data = subset(dat_sel, Country.Region %in% i & date > (max(date) - 11)))
-  
-  dat_tmp <- subset(dat_sel, Country.Region %in% i & date > (max(date) - 10))
-  int <- mean(log10(dat_tmp$value) - coef(max_mod)[2]*dat_tmp$daystoday)
-  
-  # visreg::visreg(tmp_mod)
-  
-  dat_sel$date_diff[dat_sel$Country.Region %in% i] <- round(as.numeric(-(coef(max_mod)[1] - int)/(coef(max_mod)[2])), 0)
-  
-}
-
-dat_sel$date_diff[dat_sel$Country.Region %in% count_max] <- 0
-
-dat_sel$date_lag <- dat_sel$date + dat_sel$date_diff
-dat_sel$diff_today_lag <- as.numeric(dat_sel$date_lag - max(dat_sel$date))
-
-names(dat_sel)[1] <- "Country"
-
-dat_sel$Country <- factor(dat_sel$Country, levels = c("Italy", sort(countries[!countries%in% "Italy"])))
+graph_dat %<>% group_by(org) %>% mutate ( chg_from_prev= test_pos-lag(test_pos))
 
 theme_set(theme_bw())
-p <- ggplot(subset(dat_sel, diff_today_lag >= -20), aes(x = diff_today_lag, y = value)) + 
+p <- ggplot(graph_dat, aes(x = diff_today_lag, y = test_pos)) + 
   geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
-  geom_point(aes(colour = Country), size = 3) +
-  geom_line(aes(colour = Country), size = 0.75) +
-  # geom_line(aes(colour = variable), size = 1) +
-  xlab(paste("Lag in days behind ", count_max, " (", max_cases, " cases on ", format(max(dat_sel$date), format = "%d.%m%.%Y"), ")", sep = "")) +
+  geom_point(aes(colour = org), size = 3) +
+  geom_line(aes(colour = org), size = 0.75) +
+  xlab(paste("Lag in days behind ", target_org, " (", max_cases, " cases on ", format(maxdate, format = "%m%-%d-%Y"), ")", sep = "")) +
   ylab("Confirmed SARS-CoV-2 cases") +
-  # scale_y_continuous(breaks = exp(seq(log(10), log(100000), length = 5)), trans = "log") +
-  scale_y_log10(limits = c(1, NA)) +
+  scale_y_continuous(
+    limits = c(10, NA),
+    trans = "log10"
+  )+
+  #scale_y_log10(limits = c(1, NA)) +
   scale_x_continuous(breaks = seq(-1000, 0, 5)) +
-  gghighlight(aes(group = Country)
+  gghighlight(aes(group = org)
               , use_direct_label = TRUE
               , label_key = date_diff
               , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
               , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
-  # geom_abline(intercept = 4.1231, slope = 0.1123) +
-  facet_wrap(~Country) +
+  
+  
+  #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
+
+  facet_wrap(~org) +
   theme(
     axis.title.y=element_text(colour = "black", size = 17, hjust = 0.5, margin=margin(0,12,0,0)),
     axis.title.x=element_text(colour = "black", size = 17, margin=margin(10,0,0,0)),
-    # axis.title.y=element_text(size=15,hjust=0.5, vjust=1),
     axis.text.x=element_text(colour = "black", size=15),
     axis.text.y=element_text(colour = "black", size=15),
-    # plot.margin=unit(c(2,2,2,2,2),"line"),
     legend.position="none",
     legend.text=element_text(size=12.5),
-    # panel.grid.minor = element_blank(),
-    # panel.grid.major = element_line(colour=grey(0.8), size=0.5),
     legend.key=element_blank(),
     plot.title = element_text(face = "bold"),
     legend.title=element_text(size=15),
-    # legend.key.width=unit(.01,"npc"),
-    # legend.key.height=unit(.025,"npc"),
-    # strip.background=element_rect(fill="white")
     panel.grid.minor = element_blank(),
     strip.text.x=element_text(size=15)
   ) +
   annotation_logticks(base = 10, sides = "l") +
   labs(caption = "Data source: https://github.com/CSSEGISandData/COVID-19")
-p
+
+  
+
+plot(p)
+
+
+################### plot as percentage of population
+
+
+theme_set(theme_bw())
+pct <- ggplot(graph_dat, aes(x = diff_today_lag, y = test_pos/population)) + 
+  #geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
+  geom_point(aes(colour = org), size = 3) +
+  geom_line(aes(colour = org), size = 0.75) +
+  scale_y_log10() +
+  scale_x_continuous(breaks = seq(-1000, 0, 5)) +
+  gghighlight(aes(group = org)
+              , use_direct_label = TRUE
+              , label_key = date_diff
+              , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
+              , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
+  
+  #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
+  
+  facet_wrap(~org) +
+  theme(
+    axis.title.y=element_text(colour = "black", size = 17, hjust = 0.5, margin=margin(0,12,0,0)),
+    axis.title.x=element_text(colour = "black", size = 17, margin=margin(10,0,0,0)),
+    axis.text.x=element_text(colour = "black", size=15),
+    axis.text.y=element_text(colour = "black", size=15),
+    legend.position="none",
+    legend.text=element_text(size=12.5),
+    legend.key=element_blank(),
+    plot.title = element_text(face = "bold"),
+    legend.title=element_text(size=15),
+    panel.grid.minor = element_blank(),
+    strip.text.x=element_text(size=15)
+  ) 
+  # + annotation_logticks(base = 10, sides = "l") 
+
+plot(pct)
+
+
+################### plot daily change
+
+
+theme_set(theme_bw())
+chg <- ggplot(graph_dat, aes(x = diff_today_lag, y = chg_from_prev)) + 
+  #geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
+  geom_point(aes(colour = org), size = 3) +
+  geom_line(aes(colour = org), size = 0.75) +
+  scale_y_continuous() +
+  scale_x_continuous(breaks = seq(-1000, 0, 5)) +
+  gghighlight(aes(group = org)
+              , use_direct_label = TRUE
+              , label_key = date_diff
+              , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
+              , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
+  
+  #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
+  
+  facet_wrap(~org) +
+  theme(
+    axis.title.y=element_text(colour = "black", size = 17, hjust = 0.5, margin=margin(0,12,0,0)),
+    axis.title.x=element_text(colour = "black", size = 17, margin=margin(10,0,0,0)),
+    axis.text.x=element_text(colour = "black", size=15),
+    axis.text.y=element_text(colour = "black", size=15),
+    legend.position="none",
+    legend.text=element_text(size=12.5),
+    legend.key=element_blank(),
+    plot.title = element_text(face = "bold"),
+    legend.title=element_text(size=15),
+    panel.grid.minor = element_blank(),
+    strip.text.x=element_text(size=15)
+  ) 
+# + annotation_logticks(base = 10, sides = "l") 
+ 
+plot(chg)
+
+
+##################################################
