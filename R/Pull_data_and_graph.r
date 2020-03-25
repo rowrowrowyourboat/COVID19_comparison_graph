@@ -6,6 +6,7 @@ require(gghighlight)
 library(tidyverse)
 library(magrittr)
 library(deSolve)
+library(data.table)
 options(scipen = 999)
 
 
@@ -14,8 +15,9 @@ options(scipen = 999)
 
 get_URL_as_csv<- function(u){
   getURL(
-    u,
-    .opts = list(ssl.verifypeer = FALSE)
+    u
+   # ,.opts = list(ssl.verifypeer = FALSE)
+   
   ) %>% read.csv(text = ., stringsAsFactors = FALSE)
   
   
@@ -30,23 +32,24 @@ dat$Long <- NULL
 dat$report_date <- as.Date(dat$report_date, format = "%m.%d.%y")
 
 #source US census 
-pop_states<- get_URL_as_csv( "https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/national/totals/nst-est2019-alldata.csv")
+pop_states<- fread( file=paste0(getwd(), "/data/nst-est2019-alldata.csv"))
 pop_states %<>% select(NAME, POPESTIMATE2019)
 colnames(pop_states)<- c("NAME", "population")
 
 #world pop
 #pop_country<- get_URL_as_csv("https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv")
-pop_country<- get_URL_as_csv("https://data.un.org/_Docs/SYB/CSV/SYB62_1_201907_Population,%20Surface%20Area%20and%20Density.csv")
+pop_country<- fread( file=paste0(getwd(), "/data/SYB62_1_201907_Population, Surface Area and Density.csv"), skip =1)
+#pop_country<- get_URL_as_csv("https://data.un.org/_Docs/SYB/CSV/SYB62_1_201907_Population,%20Surface%20Area%20and%20Density.csv")
 
 
 #colnames(pop_country)<-pop_country[1,]
 
 pop_country$location<-pop_country[,2]
-pop_country %<>% filter(X== '2019')
-pop_country %<>% filter(X.1=="Population mid-year estimates (millions)")
-pop_country$population <- as.numeric(pop_country$X.2)*1000000
+pop_country %<>% filter(Year== '2019')
+pop_country %<>% filter(Series=="Population mid-year estimates (millions)")
+pop_country$population <- as.numeric(pop_country$Value)*1000000
 pop_country%<>% select(location, population)
-pop_country<-pop_country[2:nrow(pop_country),]
+
 
 
 pop_country[pop_country$location == "China, Taiwan Province of China", "location"]<- "Taiwan*"
@@ -104,7 +107,7 @@ filter_list<- c(
   ,"Spain"
   ,"US-California"
   ,"US-Tennessee"
-  ,"United States", "China"
+  ,"United States", "China", "Taiwan", "US-New York"
 )
 
 filter_days_to_go_back<- -30
@@ -116,7 +119,7 @@ target_org <- "Italy"
 pop_percentage<- .50
 
 #remove data under min case count threshold
-graph_dat<-filter(dat,test_pos>=min_cases, org %in% filter_list,  )
+graph_dat<-filter(dat,test_pos>=min_cases, org %in% filter_list  )
 
 
 maxdate<-max(graph_dat$report_date)
