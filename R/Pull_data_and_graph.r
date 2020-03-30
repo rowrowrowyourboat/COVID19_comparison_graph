@@ -24,11 +24,16 @@ get_URL_as_csv<- function(u){
 }
 
 #source: CSSE at Johns Hopkins University
-y<- get_URL_as_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
-names(y)[-(1:4)] <- substring(names(y)[-(1:4)], 2)
-dat <- melt(y, id.vars = names(y)[1:4], variable.name = "report_date", value.name = "test_pos")
-dat$Lat <- NULL
-dat$Long <- NULL
+y<- get_URL_as_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+
+y%<>% select(-Lat, -Long)
+names(y)[-(1:2)]%<>% substring( first = 2)
+
+
+#dat <- melt(y, id.vars = names(y)[1:2], variable.name = "report_date", value.name = "test_pos")
+dat<- pivot_longer(y, -names(y)[1:2], names_to = "report_date", values_to = "test_pos")
+#dat$Lat <- NULL
+#dat$Long <- NULL
 dat$report_date <- as.Date(dat$report_date, format = "%m.%d.%y")
 
 #source US census 
