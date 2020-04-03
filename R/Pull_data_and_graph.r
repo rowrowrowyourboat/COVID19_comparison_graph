@@ -1,5 +1,5 @@
 
-library(curl)
+#library(curl)
 library(reshape2)
 library(ggplot2)
 require(gghighlight)
@@ -7,6 +7,7 @@ library(tidyverse)
 library(magrittr)
 library(deSolve)
 library(data.table)
+library(hellno)
 options(scipen = 999)
 
 
@@ -25,9 +26,11 @@ options(scipen = 999)
 
 #source: CSSE at Johns Hopkins University
 
-y<- curl_fetch_memory(
-  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv"
+y <- read.csv(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
   )
+
+
 y%<>% select(-Lat, -Long)
 names(y)[-(1:2)]%<>% substring( first = 2)
 
@@ -284,3 +287,4 @@ plot(chg)
 
 
 ##################################################
+
