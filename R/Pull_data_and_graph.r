@@ -1,5 +1,5 @@
 
-library(RCurl)
+library(curl)
 library(reshape2)
 library(ggplot2)
 require(gghighlight)
@@ -13,19 +13,25 @@ options(scipen = 999)
 
 
 
-get_URL_as_csv<- function(u){
-  getURL(
-    u
-   # ,.opts = list(ssl.verifypeer = FALSE)
-   
-  ) %>% read.csv(text = ., stringsAsFactors = FALSE)
-  
-  
-}
+# get_URL_as_csv<- function(u){
+#   curl(
+#     u
+#    # ,.opts = list(ssl.verifypeer = FALSE)
+#    
+#   ) %>% read.csv(text = ., stringsAsFactors = FALSE)
+#   
+#   
+# }
 
 #source: CSSE at Johns Hopkins University
-y<- get_URL_as_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
+y<- curl_fetch_memory(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv"
+  
+  
+  )
 names(y)[-(1:4)] <- substring(names(y)[-(1:4)], 2)
+
+
 dat <- melt(y, id.vars = names(y)[1:4], variable.name = "report_date", value.name = "test_pos")
 dat$Lat <- NULL
 dat$Long <- NULL
