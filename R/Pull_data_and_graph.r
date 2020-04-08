@@ -8,54 +8,106 @@ library(magrittr)
 library(deSolve)
 library(data.table)
 library(hellno)
-options(scipen = 999)
+options(scipen = 999, stringsAsFactors = FALSE)
+library(future)
 
 
-
-
-
-# get_URL_as_csv<- function(u){
-#   curl(
-#     u
-#    # ,.opts = list(ssl.verifypeer = FALSE)
-#    
-#   ) %>% read.csv(text = ., stringsAsFactors = FALSE)
-#   
-#   
-# }
 
 #source: CSSE at Johns Hopkins University
 
-y <- read.csv(
-  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+process_CSSEGIS<-function(file_name, column_groups, fields_to_remove ){
+ #
+  
+  
+ #file_name ="time_series_covid19_confirmed_US.csv"
+ # column_groups = c("Country_Region" , "Province_State", "Admin2" )
+ # fields_to_remove =c("Lat", "Long_", "FIPS", "Combined_Key", "UID", "iso2", "iso3", "code3"  )
+  
+
+   tmp<-read.csv(
+    paste0(
+    "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/",
+    file_name
+    ),
+    stringsAsFactors = FALSE
   )
+  
+  tmp<- tmp %>% select(-fields_to_remove)
+  tmp<- pivot_longer(tmp, -column_groups, names_to = "report_date", values_to = "test_pos")
+  
+  tmp$report_date <- tmp$report_date %>%
+    str_replace( "X", "") %>%
+    as.Date( format = "%m.%d.%y")
+  
+  tmp_sum<-create_groups(tmp, column_groups)
+  return(tmp_sum)
+}
+
+create_groups<-function(idata, column_groups){
+  #careful! iterative!!
+  
+#  stopifnot(length(column_groups)>0)
+  #idata<-tmp
+  
+  
+  lastcolname<- column_groups[length(column_groups)]
+  print(lastcolname)
+  
+  data_store<-idata
+  
+  mod_data<- idata[!is.na(pull(idata, lastcolname)) & !is.null(pull(idata, lastcolname)) & nchar(pull(idata,lastcolname))>1 ,]
+  
+  mod_data$org <- apply(mod_data[,column_groups], 1, paste ,collapse="-")
+  
+  mod_data<- mod_data %>% group_by(org, report_date )%>% summarize(test_pos= sum(test_pos))
+  
+  comb_data<- bind_rows(mod_data, data_store)
+  
+  #get ready to iterate
+  data_store<- data_store %>% select(-lastcolname)
+  
+  if(length(column_groups)>1) {
+    
+    comb_data<- bind_rows(mod_data, data_store)
+    column_groups<- column_groups[1:(length(column_groups)-1)]
+    
+    comb_data<- bind_rows(mod_data, data_store)
+    
+    #iterate
+    create_groups(comb_data, column_groups )
+  } else {
+    comb_data<- bind_rows(mod_data, data_store)
+    comb_data<- comb_data %>% filter(!is.na(org))
+    return(comb_data)
+  }
+}
 
 
-y%<>% select(-Lat, -Long)
-names(y)[-(1:2)]%<>% substring( first = 2)
+world_data<- process_CSSEGIS("time_series_covid19_confirmed_global.csv", 
+                             c("Country.Region" , "Province.State" ),
+                             c("Lat", "Long")
+)
 
+us_data<- process_CSSEGIS("time_series_covid19_confirmed_US.csv", 
+                             c("Country_Region" , "Province_State", "Admin2" ),
+                             c("Lat", "Long_", "FIPS", "Combined_Key", "UID", "iso2", "iso3", "code3"  )
+)
+us_data<- us_data %>% filter(org != "US") #use the international data
 
-dat<- pivot_longer(y, -names(y)[1:2], names_to = "report_date", values_to = "test_pos")
+dat<-bind_rows(us_data, world_data)
 
-
-dat$report_date <- as.Date(dat$report_date, format = "%m.%d.%y")
 
 #source US census 
 pop_states<- fread( file=paste0(getwd(), "/data/nst-est2019-alldata.csv"))
 pop_states %<>% select(NAME, POPESTIMATE2019)
 colnames(pop_states)<- c("NAME", "population")
+pop_states$NAME <- paste("US", pop_states$NAME, sep = "-")
 
 #world pop
-#pop_country<- get_URL_as_csv("https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv")
 pop_country<- fread( file=paste0(getwd(), "/data/SYB62_1_201907_Population, Surface Area and Density.csv"), skip =1)
-#pop_country<- get_URL_as_csv("https://data.un.org/_Docs/SYB/CSV/SYB62_1_201907_Population,%20Surface%20Area%20and%20Density.csv")
-
-
-#colnames(pop_country)<-pop_country[1,]
 
 pop_country$location<-pop_country[,2]
-pop_country %<>% filter(Year== '2019')
-pop_country %<>% filter(Series=="Population mid-year estimates (millions)")
+pop_country %<>% filter(Year== '2019', Series=="Population mid-year estimates (millions)")
 pop_country$population <- as.numeric(pop_country$Value)*1000000
 pop_country%<>% select(location, population)
 
@@ -65,43 +117,19 @@ pop_country[pop_country$location == "China, Taiwan Province of China", "location
 pop_country[pop_country$location == "United States of America", "location"]<- "US"
 pop_country[pop_country$location == "Viet Nam", "location"]<- "Vietnam"
 pop_country[pop_country$location == "Russian Federation", "location"]<- "Russia"
-pop_country[pop_country$location == "	Iran (Islamic Republic of)", "location"]<- "Iran"
+pop_country[pop_country$location == "Iran (Islamic Republic of)", "location"]<- "Iran"
 pop_country[pop_country$location == "Bolivia (Plurinational State of)", "location"]<- "Bolivia"
 pop_country[pop_country$location == "Republic of Korea", "location"]<- "Korea, South"
 
 
 
+#add populations
 
+dat<- left_join(dat, pop_states, by=c("org"= "NAME"))
+dat<- left_join(dat, pop_country, by = c("org" = "location"))
 
-
-#create state level data
-dat$org<- ifelse(dat$Province.State=="", "DELETE", paste(dat$Country.Region, dat$Province.State, sep="-"))
-dat<- left_join(dat, pop_states, by=c("Province.State"= "NAME"))
-
-
-#create country level data
-dat_country<- dat %>%
-                group_by(Country.Region, report_date) %>%
-                summarize(
-                  test_pos = sum(test_pos)
-                )
-dat_country<- left_join(dat_country, pop_country, by = c("Country.Region" = "location"))
-
-dat_country$org<-dat_country$Country.Region
-dat_country$Country.Region<-NULL
-
-dat$Country.Region<-NULL
-dat$Province.State<-NULL
-
-
-dat<-bind_rows(dat, dat_country)
-dat_country<-NULL
-
-dat<- dat[dat$org!="DELETE",]
-
-
-
-
+dat$population<- ifelse(is.null(dat$population.x), dat$population.y, dat$population.x)
+dat <- dat %>% select(-population.x, -population.y)
 
 ############ switch to graphic specific dataframe #############
 filter_list<- c(
@@ -114,14 +142,21 @@ filter_list<- c(
   , "Austria"
   , "Japan"
   ,"Spain"
+   ,"Iceland" 
+  ,"United States"   
   ,"US-California"
   ,"US-Tennessee"
-  ,"United States", "China", "Taiwan", "US-New York"
+
+ # "China", 
+ # "Taiwan", 
+  ,"US-New York"
+  ,"US-Florida"
+ ,"US-New Jersey"
 )
 
-filter_days_to_go_back<- -30
+filter_days_to_go_back<- -40
 
-min_cases <- 10
+min_cases <- 100
 
 target_org <- "Italy"
 
@@ -216,16 +251,16 @@ plot(p)
 
 
 theme_set(theme_bw())
-pct <- ggplot(graph_dat, aes(x = diff_today_lag, y = test_pos/population)) + 
+pct <- ggplot(graph_dat, aes(x = diff_today_lag, y = test_pos / population)) + 
   #geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
   geom_point(aes(colour = org), size = 3) +
   geom_line(aes(colour = org), size = 0.75) +
   scale_y_log10() +
   scale_x_continuous(breaks = seq(-1000, 0, 5)) +
   gghighlight(aes(group = org)
-              , use_direct_label = TRUE
-              , label_key = date_diff
-              , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
+              , use_direct_label = FALSE
+             # , label_key = date_diff
+             # , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
               , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
   
   #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
@@ -260,9 +295,9 @@ chg <- ggplot(graph_dat, aes(x = diff_today_lag, y = chg_from_prev)) +
   scale_y_continuous() +
   scale_x_continuous(breaks = seq(-1000, 0, 5)) +
   gghighlight(aes(group = org)
-              , use_direct_label = TRUE
-              , label_key = date_diff
-              , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
+              , use_direct_label = FALSE
+             # , label_key = date_diff
+              #, label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
               , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
   
   #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
