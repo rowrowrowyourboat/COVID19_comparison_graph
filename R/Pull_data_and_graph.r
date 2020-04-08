@@ -116,7 +116,11 @@ filter_list<- c(
   ,"Spain"
   ,"US-California"
   ,"US-Tennessee"
-  ,"United States", "China", "Taiwan", "US-New York"
+  ,"United States", 
+  "China", 
+  "Taiwan", 
+  "US-New York",
+  "Iceland"
 )
 
 filter_days_to_go_back<- -30
