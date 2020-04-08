@@ -146,12 +146,12 @@ filter_list<- c(
   ,"United States"   
   ,"US-California"
   ,"US-Tennessee"
-
  # "China", 
  # "Taiwan", 
   ,"US-New York"
   ,"US-Florida"
  ,"US-New Jersey"
+
 )
 
 filter_days_to_go_back<- -40
