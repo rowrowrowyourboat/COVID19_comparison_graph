@@ -42,44 +42,19 @@ source("./01_data_prep.r")
 
 ##################
 
-default_org_list <- {
-  c(
-    "Italy",
-  #  "Switzerland"
-    # , "Germany"
-    #  , "France"
-    #  , "United Kingdom"
-    #  , "US"
-   # , "Austria"
-    #  , "Japan"
-    #  ,"Spain"
-   # , "Iceland"
-    #  ,"United States"
-   # , "US-California",
-#    "US-California-Stanislaus",
-#    "US-California-Merced",
-#    "US-California-Tuolumne",
-    "US-California-San Joaquin",
-    "US-Tennessee",
-    "US-Tennessee-Williamson",
-    "US-Tennessee-Davidson"
-    # "China",
-    # "Taiwan",
-    # ,"US-New York"
-    , "US-Florida",
-    "US-New Jersey"
-  )
-}
 
 
 daysbehind_plot <- function(gdat, #reactive
                             tmp_filter_days_to_go_back, #non-reactive
                             tmp_max_mod, 
                             tmp_maxdate, 
-                            tmp_max_cases) {
+                            tmp_max_cases,
+                            tmp_target_org
+                            ) {
   # apply model against remaining entities to show how many days behind target org they are
-  gdat <-
-    mutate(group_by(gdat, org),
+  #note - only data, no org info getting passed
+  gdat <- gdat %>%
+    mutate(
       date_diff =
         round(
           as.numeric(
@@ -97,16 +72,21 @@ daysbehind_plot <- function(gdat, #reactive
   return(
     ggplot(gdat, aes(x = diff_today_lag, y = test_pos)) +
       geom_abline(intercept = coef(tmp_max_mod)[1], slope = coef(tmp_max_mod)[2], linetype = 2) +
-      geom_point(aes(colour = org), size = 3) +
-      geom_line(aes(colour = org), size = 0.75) +
-      xlab(paste("Lag in days behind ", target_org, " (", tmp_max_cases, " cases on ", format(tmp_maxdate, format = "%m%-%d-%Y"), ")", sep = "")) +
+      geom_point(
+        aes(colour = org), 
+        size = 3) +
+      geom_line(
+        aes(colour = org), 
+        size = 0.75) +
+      xlab(paste("Lag in days behind ", tmp_target_org, " (", tmp_max_cases, " cases on ", format(tmp_maxdate, format = "%m%-%d-%Y"), ")", sep = "")) +
       ylab("Confirmed SARS-CoV-2 cases") +
       scale_y_continuous(
         limits = c(10, NA),
         trans = "log10"
       ) +
       scale_x_continuous(breaks = seq(-1000, 0, 5)) # +
-  #     gghighlight(aes(group = org),
+  #     gghighlight(
+  #      aes(group = org),
   #       use_direct_label = TRUE,
   #       label_key = date_diff,
   #       label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5),
@@ -187,7 +167,7 @@ ui <- fluidPage({
               # offset = 0, #offset moves item x columns to the right
               # show graphs for each level
               "graph 1",
-              plotOutput("testPlot")
+
             ),
             column(
               width = 4, # column width (out of 12 columns total)
@@ -198,14 +178,15 @@ ui <- fluidPage({
           )
         )
       })
-      # ,fluidRow(
-      #   div(
-      #     id = "plot-container",
-      #     uiOutput(
-      #       outputId = "graphs_ui"
-      #     )
-      #   )
-      # )
+      ,
+      fluidRow(
+        div(
+          id = "plot-container",
+          uiOutput(
+            outputId = "graphs_ui"
+          )
+        )
+      )
     )
   )
 })
@@ -221,16 +202,18 @@ server <- function(input, output) {
 
   # subset data to graph
   graph_dat <- reactive({
-    filter(dat, dat$org %in% input$filter_list, dat$test_pos >= input$min_cases) %>%
-      mutate(daystoday = as.numeric(report_date - max(report_date, na.rm = TRUE))) %>%
+    filter(dat, org %in% input$filter_list, test_pos >= input$min_cases) %>%
+      mutate(
+        daystoday = as.numeric(report_date - max(report_date, na.rm = TRUE))      
+        ) %>%
       group_by(org) %>%
       arrange(report_date, .by_group = TRUE) %>%
-      mutate(chg_from_prev = test_pos - lag(test_pos))
+      mutate(
+        chg_from_prev = replace_na(test_pos - lag(test_pos),0)
+      )
   })
 
- #browser()
-  
-  # order the organizations( target will go first)
+
   # graph_dat$org <- factor(graph_dat$org, levels = c(target_org, filter_list[not(filter_list %in% target_org)]))
 
   maxdate <- reactive(max(graph_dat()$report_date, na.rm = TRUE))
@@ -250,60 +233,65 @@ server <- function(input, output) {
   ### Source for variable number of items list
   ### https://tbradley1013.github.io/2018/08/10/create-a-dynamic-number-of-ui-elements-in-shiny-with-purrr/
 
-
-  
-  ggdaysbehind <- reactive({
-      req(max_mod())
-      req(maxdate())
-      req(max_cases())
-      req(graph_dat())
-      
+  ggdaysbehind <- reactive(
+      #req(max_mod())
+      #req(maxdate())
+      #req(max_cases())
+      #req(graph_dat())
       
     graph_dat() %>%
-      group_by(org) %>%
-      nest() %>%
-          select(data) %>%
-      mutate(
-        graphs = pmap(
-          list(., filter_days_to_go_back, max_mod(), maxdate(), max_cases()),
-          daysbehind_plot
-        )
-      ) %>%
-      # arrange(parameter) %>% #factor should have taken care of that , right?
-      pull(graphs)
+      mutate(org2= org
+             ) %>% #create a duplicate of org so that one of them will go into the data frame
 
+      group_by(org2) %>%
+      nest() %>%
+      mutate(
+        #simple one variable version (4/22 - complains about not finding reactive 'functions'/variables so maybe simple won't work
+        #graphs = map(
+         #data,
+        #lots of variables complex version
+        graphs = map(data,
+                      daysbehind_plot
+                      
+               ,filter_days_to_go_back,
+               max_mod(), 
+               maxdate(), 
+               max_cases(),
+               target_org
+               )
+        ) %>%
+      arrange(!(org2==target_org), org2) %>%  #order the results, target first
+      pull(graphs) 
+)
+
+  ## 2- output plots
+  observe({
+    req(ggdaysbehind())
+
+    iwalk(ggdaysbehind(), ~ {
+      output_name <- paste0("plot_", .y)
+      output[[output_name]] <- renderPlot(.x)
+    })
   })
 
-  # ## 2- output plots
-  # observe({
-  #   req(ggdaysbehind())
-  # 
-  #   iwalk(ggdaysbehind(), ~ {
-  #     output_name <- paste0("plot_", .y)
-  #     output[[output_name]] <- renderPlotly(.x)
-  #   })
-  # })
 
+ ## 3- render UI (JS? HTML?) code to send to UI so that it can handle the variable list
+   output$graphs_ui <- renderUI({
+     req(ggdaysbehind())
+  
+     plots_list <- imap(ggdaysbehind(), ~ {
+       tagList(
+         plotOutput(
+           outputId = paste0("plot_", .y)
+         ),
+         br()
+       )
+     })
 
- ## 3- render code to send to UI so that it can handle the variable list
-  # output$graphs_ui <- renderUI({
-  #   req(ggdaysbehind())
-  # 
-  #   plots_list <- imap(ggdaysbehind(), ~ {
-  #     tagList(
-  #       plotOutput(
-  #         outputId = paste0("plot_", .y)
-  #       ),
-  #       br()
-  #     )
-  #   })
+     tagList(plots_list)
+   })
 
-  #   tagList(plots_list)
-  # })
-
-  output$testPlot<-renderPlot(
-      ggdaysbehind()[1]
-  )
+  
       
 
   
