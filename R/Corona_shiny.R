@@ -73,10 +73,10 @@ daysbehind_plot <- function(gdat, #reactive
     ggplot(gdat, aes(x = diff_today_lag, y = test_pos)) +
       geom_abline(intercept = coef(tmp_max_mod)[1], slope = coef(tmp_max_mod)[2], linetype = 2) +
       geom_point(
-        aes(colour = org), 
+        aes(colour = org_factor), 
         size = 3) +
       geom_line(
-        aes(colour = org), 
+        aes(colour = org_factor), 
         size = 0.75) +
       xlab(paste("Lag in days behind ", tmp_target_org, " (", tmp_max_cases, " cases on ", format(tmp_maxdate, format = "%m%-%d-%Y"), ")", sep = "")) +
       ylab("Confirmed SARS-CoV-2 cases") +
@@ -84,30 +84,30 @@ daysbehind_plot <- function(gdat, #reactive
         limits = c(10, NA),
         trans = "log10"
       ) +
-      scale_x_continuous(breaks = seq(-1000, 0, 5)) # +
-  #     gghighlight(
-  #      aes(group = org),
-  #       use_direct_label = TRUE,
-  #       label_key = date_diff,
-  #       label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5),
-  #       unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)
-  #     ) +
-  #     # geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
-  #     theme(
-  #       axis.title.y = element_text(colour = "black", size = 17, hjust = 0.5, margin = margin(0, 12, 0, 0)),
-  #       axis.title.x = element_text(colour = "black", size = 17, margin = margin(10, 0, 0, 0)),
-  #       axis.text.x = element_text(colour = "black", size = 15),
-  #       axis.text.y = element_text(colour = "black", size = 15),
-  #       legend.position = "none",
-  #       legend.text = element_text(size = 12.5),
-  #       legend.key = element_blank(),
-  #       plot.title = element_text(face = "bold"),
-  #       legend.title = element_text(size = 15),
-  #       panel.grid.minor = element_blank(),
-  #       strip.text.x = element_text(size = 15)
-  #     ) +
-  #     annotation_logticks(base = 10, sides = "l") +
-  #     labs(caption = "Data source: https://github.com/CSSEGISandData/COVID-19")
+      scale_x_continuous(breaks = seq(-1000, 0, 5))  +
+       gghighlight(
+        aes(group = org_factor),
+         use_direct_label = TRUE,
+         label_key = date_diff,
+         label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5),
+         unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)
+       ) +
+       # geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
+       theme(
+         axis.title.y = element_text(colour = "black", size = 17, hjust = 0.5, margin = margin(0, 12, 0, 0)),
+         axis.title.x = element_text(colour = "black", size = 17, margin = margin(10, 0, 0, 0)),
+         axis.text.x = element_text(colour = "black", size = 15),
+         axis.text.y = element_text(colour = "black", size = 15),
+         legend.position = "none",
+         legend.text = element_text(size = 12.5),
+         legend.key = element_blank(),
+         plot.title = element_text(face = "bold"),
+         legend.title = element_text(size = 15),
+         panel.grid.minor = element_blank(),
+         strip.text.x = element_text(size = 15)
+       ) +
+       annotation_logticks(base = 10, sides = "l") 
+  #    + labs(caption = "Data source: https://github.com/CSSEGISandData/COVID-19")
    )
 }
 
@@ -193,8 +193,11 @@ ui <- fluidPage({
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
-  filter_days_to_go_back <- -100
+ 
+  #TODO convert this to a filter
+   filter_days_to_go_back <- -100
 
+   #TODO convert this to a single value dropdown option - all countries
   target_org <- "Italy"
   pop_percentage <- reactive({
     input$pop_pct
@@ -209,12 +212,11 @@ server <- function(input, output) {
       group_by(org) %>%
       arrange(report_date, .by_group = TRUE) %>%
       mutate(
-        chg_from_prev = replace_na(test_pos - lag(test_pos),0)
+        chg_from_prev = replace_na(test_pos - lag(test_pos),0),
+        org_factor= as.factor(org)
       )
   })
 
-
-  # graph_dat$org <- factor(graph_dat$org, levels = c(target_org, filter_list[not(filter_list %in% target_org)]))
 
   maxdate <- reactive(max(graph_dat()$report_date, na.rm = TRUE))
 
@@ -234,11 +236,9 @@ server <- function(input, output) {
   ### https://tbradley1013.github.io/2018/08/10/create-a-dynamic-number-of-ui-elements-in-shiny-with-purrr/
 
   ggdaysbehind <- reactive(
-      #req(max_mod())
-      #req(maxdate())
-      #req(max_cases())
-      #req(graph_dat())
-      
+     
+    #TODO convert this into a for-each loop so that it runs in parallel and passes all the data to each graph, but each graph highlights it's own org
+    #TODO add 
     graph_dat() %>%
       mutate(org2= org
              ) %>% #create a duplicate of org so that one of them will go into the data frame
@@ -246,11 +246,7 @@ server <- function(input, output) {
       group_by(org2) %>%
       nest() %>%
       mutate(
-        #simple one variable version (4/22 - complains about not finding reactive 'functions'/variables so maybe simple won't work
-        #graphs = map(
-         #data,
-        #lots of variables complex version
-        graphs = map(data,
+      graphs = map(data,
                       daysbehind_plot
                       
                ,filter_days_to_go_back,

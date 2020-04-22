@@ -93,48 +93,6 @@ graph_dat %<>% group_by(org) %>% mutate ( chg_from_prev= test_pos-lag(test_pos))
 theme_set(theme_bw())
 
 
-daysbehind<-function(gdat){
-  return(
-    ggplot(gdat, aes(x = diff_today_lag, y = test_pos)) + 
-    geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
-    geom_point(aes(colour = org), size = 3) +
-    geom_line(aes(colour = org), size = 0.75) +
-    xlab(paste("Lag in days behind ", target_org, " (", max_cases, " cases on ", format(maxdate, format = "%m%-%d-%Y"), ")", sep = "")) +
-    ylab("Confirmed SARS-CoV-2 cases") +
-    scale_y_continuous(
-      limits = c(10, NA),
-      trans = "log10"
-    )+
-    scale_x_continuous(breaks = seq(-1000, 0, 5)) +
-    gghighlight(aes(group = org)
-                , use_direct_label = TRUE
-                , label_key = date_diff
-                , label_params = list(point.padding = 1, nudge_y = -0.9, nudge_x = 1.2, size = 5.5)
-                , unhighlighted_params = list(colour = grey(0.9), alpha = 0.75)) +
-    #geom_hline(aes(yintercept = graph_dat$population[!duplicated(graph_dat$org)]*pop_percentage))+
-    theme(
-      axis.title.y=element_text(colour = "black", size = 17, hjust = 0.5, margin=margin(0,12,0,0)),
-      axis.title.x=element_text(colour = "black", size = 17, margin=margin(10,0,0,0)),
-      axis.text.x=element_text(colour = "black", size=15),
-      axis.text.y=element_text(colour = "black", size=15),
-      legend.position="none",
-      legend.text=element_text(size=12.5),
-      legend.key=element_blank(),
-      plot.title = element_text(face = "bold"),
-      legend.title=element_text(size=15),
-      panel.grid.minor = element_blank(),
-      strip.text.x=element_text(size=15)
-    ) +
-    annotation_logticks(base = 10, sides = "l") +
-    labs(caption = "Data source: https://github.com/CSSEGISandData/COVID-19")
-  )
-}
-  
-  
-  
-  
-}
-
 
 p <- ggplot(graph_dat, aes(x = diff_today_lag, y = test_pos)) + 
   geom_abline(intercept = coef(max_mod)[1], slope = coef(max_mod)[2], linetype = 2) +
