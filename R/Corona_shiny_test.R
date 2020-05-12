@@ -180,10 +180,15 @@ ui <- fluidPage({
       })
       ,
       fluidRow({
-
+        div(
+          
+          id= "plot-contianer",
           uiOutput(
             outputId = "graphs_ui"
           )
+        )
+
+
         })
 
     )
@@ -266,13 +271,25 @@ server <- function(input, output) {
 
     iwalk(ggdaysbehind(), ~ {
       output_name <- paste0("plot_", .y)
+      output[[output_name]] <- renderPlot(.x+ scale_x_reverse())
+      
+
+      
+    })
+
+  })
+
+  ## create alt graph- output plots
+  observe({
+    #req(ggdaysbehind())
+
+    iwalk(ggdaysbehind(), ~ {
+      output_name <- paste0("plot_alt", .y)
       output[[output_name]] <- renderPlot(.x)
     })
 
   })
 
-
-  
   
  ## 3- render UI (JS? HTML?) code to send to UI so that it can handle the variable list
    output$graphs_ui <- renderUI({
@@ -280,13 +297,16 @@ server <- function(input, output) {
   
      plots_list <- imap(ggdaysbehind(), ~ {
        list(
-         plotOutput( outputId = paste0("plot_", .y) )
-    
-         ,br())
-       
+         column(4,
+          plotOutput( outputId = paste0("plot_", .y) )
+         ),
+        column(4,
+          plotOutput( outputId = paste0("plot_alt", .y) )
+        ),
+        br()
+       ) 
      })
       
-     
      
      tagList(plots_list)
    })
